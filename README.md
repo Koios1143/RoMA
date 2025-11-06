@@ -78,7 +78,7 @@ torchrun --nproc_per_node=4 finetune_roma.py <same args> --ddp
 
 ------
 
-## 4) Evaluate on ARC-Challenge
+## 4) Evaluation
 
 ```bash
 python evaluate.py \
