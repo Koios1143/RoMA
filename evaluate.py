@@ -88,17 +88,18 @@ class ARCDatasetHF(Dataset):
 def load_with_router_ckpt(model_name: str, ckpt_path: str, device: str):
     model = OlmoeForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16)
     model.to(device)
-    # load gates
-    payload = torch.load(ckpt_path, map_location='cpu')
-    target_layers = payload['target_layers']
-    state = payload['state_dict']
-    for li in target_layers:
-        gate = model.model.layers[li].mlp.gate
-        w_key = f'layers.{li}.mlp.gate.weight'
-        b_key = f'layers.{li}.mlp.gate.bias'
-        gate.weight.data.copy_(state[w_key])
-        if gate.bias is not None and b_key in state:
-            gate.bias.data.copy_(state[b_key])
+    if ckpt_path is not None:
+        # load gates
+        payload = torch.load(ckpt_path, map_location='cpu')
+        target_layers = payload['target_layers']
+        state = payload['state_dict']
+        for li in target_layers:
+            gate = model.model.layers[li].mlp.gate
+            w_key = f'layers.{li}.mlp.gate.weight'
+            b_key = f'layers.{li}.mlp.gate.bias'
+            gate.weight.data.copy_(state[w_key])
+            if gate.bias is not None and b_key in state:
+                gate.bias.data.copy_(state[b_key])
     model.eval()
     return model
 
@@ -139,7 +140,7 @@ def evaluate(model, tokenizer, dataset: ARCDatasetHF, batch_size: int, device: s
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default='allenai/OLMoE-1B-7B-0125-Instruct')
-    parser.add_argument('--router_ckpt', type=str, required=True)
+    parser.add_argument('--router_ckpt', type=str, default=None)
     parser.add_argument('--hf_split', type=str, default='test', choices=['train', 'validation', 'test'])
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--max_examples', type=int, default=None)

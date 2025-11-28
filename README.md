@@ -4,13 +4,18 @@ Sparse Mixture-of-Experts (MoE) have been widely adopted in recent large languag
 
 ## 1) Environment
 
-- Python 3.10+
-- PyTorch 2.1+ with CUDA
-- Transformers, Sentence-Transformers
+Compares to the original implementation, since we're using AMD MI300X GPU with ROCm 6.1, we use the following environment setup
+
+- Python 3.11.14 (which match the original requirement 3.10+)
+- PyTorch 2.4.1 (which match the original requirement 2.1+, but not CUDA)
+- 
+- Transformers (v4.57.3), Sentence-Transformers(v5.1.2)
 
 ```bash
-pip install torch --extra-index-url https://download.pytorch.org/whl/cu121
-pip install transformers sentence-transformers
+uv venv --python 3.11
+source .venv/bin/activate
+uv pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/rocm6.1
+uv pip install transformers sentence-transformers datasets
 ```
 
 > Model tested: `allenai/OLMoE-1B-7B-0125-Instruct`
@@ -56,14 +61,17 @@ By default we update only the **last 5 layers** routers (`mlp.gate`) and optimiz
 
 $\mathcal{L}_{\text{RoMA}} = \mathcal{L}_{\text{task}} + \lambda(t) \cdot \sum_{j \in \mathcal{N}(i)} W_{ij} \lVert r_i - r_j \rVert_2^2$
 
-```bash
-python finetune_roma.py \
-  --model allenai/OLMoE-1B-7B-0125-Instruct \
-  --train_files data/instruct_openbookqa_correct_routing_results.json \
-  --output_dir ckpts/olmoe_roma_last5 \
-  --epochs 3 --batch_size 32 --lr 7e-5 --weight_decay 0.01 \
-  --lambda_reg 0.8 --k 5 --sigma 0.4 \
-  --warmup_steps 2000 --lambda_warmup_steps 2000 --max_len 1024
+I ran the finetune script with `bash finetune.sh`
+
+Note that since I've faced some errors when running the code, described in [Finetune_error.md](./Finetune_error.md), I did some modification on `finetune_roma.py`.
+
+After run the default setting, I get
+
+```
+Epoch 1: CE=2.2177, Reg=0.0044
+Epoch 2: CE=1.8043, Reg=0.0044
+Epoch 3: CE=1.4138, Reg=0.0044
+Saved router checkpoint to ckpts/olmoe_roma_last5/router_ft.pt
 ```
 
 **Multi-GPU (DDP)**
@@ -84,9 +92,33 @@ torchrun --nproc_per_node=4 finetune_roma.py <same args> --ddp
 python evaluate.py \
   --model allenai/OLMoE-1B-7B-0125-Instruct \
   --router_ckpt ckpts/olmoe_roma_last5/router_ft.pt \
-  --data data/test.jsonl --batch_size 64
+  --batch_size 64
 ```
 
+> Note that I removed the `--data data/test.jsonl` since there's no `--data` flag for `evaluate.py`
 
+After running the evaluation, I have the following result:
+
+```
+ARC-Challenge (1150 ex) Accuracy: 22.87% (263/1150)
+```
+
+The report accuracy **22.87%** is way lower than expected.
+
+I also did some modification on `evaluate.py`, such that we can evaluate the base model performance by not passing the `router_ckpt`. Run the following command for testing base model.
+
+```bash
+python evaluate.py \
+  --model allenai/OLMoE-1B-7B-0125-Instruct \
+  --batch_size 64
+```
+
+And obtain the following result:
+
+```
+ARC-Challenge (1150 ex) Accuracy: 22.87% (263/1150)
+```
+
+Which is identical to the finetuned one.
 
 ------

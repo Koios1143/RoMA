@@ -44,6 +44,27 @@ class RoutingJSONDataset(Dataset):
     def __getitem__(self, idx):
         return self.items[idx]
 
+def custom_collate_fn(batch: List[TrainItem]):
+    """
+    Custom collate function to handle TrainItem dataclass objects.
+    Returns a single object with attributes containing lists.
+    """
+    class BatchedTrainItem:
+        def __init__(self, items):
+            self.input_text = [item.input_text for item in items]
+            self.correct_answer = [item.correct_answer for item in items]
+            self.is_correct = [item.is_correct for item in items]
+            self.routing_layers = [item.routing_layers for item in items]
+        
+        def __iter__(self):
+            # Make it iterable to support unpacking if needed
+            return iter([self.input_text, self.correct_answer, self.is_correct, self.routing_layers])
+        
+        def __len__(self):
+            return len(self.input_text)
+    
+    return BatchedTrainItem(batch)
+
 def extract_answer_letter(text: str) -> str:
     text = (text or "").strip().upper()
     for ch in CHOICE_LETTERS:
@@ -128,7 +149,7 @@ def main():
 
     # Model & tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.model)
-    model = OlmoeForCausalLM.from_pretrained(args.model, torch_dtype=torch.float16)
+    model = OlmoeForCausalLM.from_pretrained(args.model, torch_dtype=torch.float32)
     model.to(device)
     model.train()
 
@@ -164,13 +185,13 @@ def main():
     # Losses
     ce_loss_fn = nn.CrossEntropyLoss(reduction='none')  # per-sample
 
-    # Data
+    # Data - ADD custom_collate_fn here
     ds = RoutingJSONDataset(args.train_files)
     if args.ddp:
         sampler = DistributedSampler(ds, shuffle=True)
-        loader = DataLoader(ds, batch_size=args.batch_size, sampler=sampler)
+        loader = DataLoader(ds, batch_size=args.batch_size, sampler=sampler, collate_fn=custom_collate_fn)
     else:
-        loader = DataLoader(ds, batch_size=args.batch_size, shuffle=True)
+        loader = DataLoader(ds, batch_size=args.batch_size, shuffle=True, collate_fn=custom_collate_fn)
 
     # Build successful set S from training JSONs directly (is_correct==True)
     if is_main_process():
@@ -244,7 +265,7 @@ def main():
                 reg = torch.tensor(0.0, device=device)
                 if len(S_texts) > 0:
                     # r_i for current batch from JSON (NOT model hooks; faithful to your files)
-                    r_i_list = [r_from_layers_json(it.routing_layers, num_experts, target_layers, device=device) for it in batch]
+                    r_i_list = [r_from_layers_json(it, num_experts, target_layers, device=device) for it in batch.routing_layers]
                     r_i = torch.stack(r_i_list, dim=0)  # [B, E*L]
                     # neighbor weights W_{i,j}
                     embedder = get_embedder()
