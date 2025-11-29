@@ -11,11 +11,17 @@ Compares to the original implementation, since we're using AMD MI300X GPU with R
 - 
 - Transformers (v4.57.3), Sentence-Transformers(v5.1.2)
 
+First `cd` to the repo dirctory.
+
 ```bash
+git submodule update --init --recursive
 uv venv --python 3.11
 source .venv/bin/activate
 uv pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/rocm6.1
 uv pip install transformers sentence-transformers datasets
+cd lm-evaluation-harness
+uv pip install -e .
+cd ..
 ```
 
 > Model tested: `allenai/OLMoE-1B-7B-0125-Instruct`
@@ -120,5 +126,48 @@ ARC-Challenge (1150 ex) Accuracy: 22.87% (263/1150)
 ```
 
 Which is identical to the finetuned one.
+
+## 5) Evaluate with lm-evaluation-harness
+
+[Update 2025/11/29]
+
+Since the original paper use [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) to evaluate model performance, we also do evaluation on this as well.
+
+For the pretrained `allenai/OLMoE-1B-7B-0125-Instruct`, I evaluate with the following command
+
+```bash
+lm_eval --model hf \
+        --model_args pretrained=allenai/OLMoE-1B-7B-0125-Instruct,trust_remote_code=True \
+        --tasks arc_challenge \
+        --device cuda:0 \
+        --batch_size 8 \
+        --seed 42
+```
+
+And the result is
+
+```
+|    Tasks    |Version|Filter|n-shot| Metric |   |Value|   |Stderr|
+|-------------|------:|------|-----:|--------|---|----:|---|-----:|
+|arc_challenge|      1|none  |     0|acc     |↑  |0.477|±  |0.0146|
+|             |       |none  |     0|acc_norm|↑  |0.500|±  |0.0146|
+```
+
+For the RoMA finetuned (3 epoch) model, I wrote a [evaluation code](./custom_lm_eval.py) and a [shell script](./custom_lm_eval.sh) for loading finetuned weights.
+
+```bash
+bash custom_lm_eval.sh
+```
+
+The result is
+
+```
+|    Tasks    |Version|Filter|n-shot| Metric |   |Value |   |Stderr|
+|-------------|------:|------|-----:|--------|---|-----:|---|-----:|
+|arc_challenge|      1|none  |     0|acc     |↑  |0.4718|±  |0.0146|
+|             |       |none  |     0|acc_norm|↑  |0.4957|±  |0.0146|
+```
+
+Which is still same as the pretrained model.
 
 ------
